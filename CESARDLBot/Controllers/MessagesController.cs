@@ -31,7 +31,7 @@ namespace CESARDLBot
                 if(message.Text.Contains("Cesar"))
                     return message.CreateReplyMessage($"Jo! I know you Cesar! You're cool!");
                 else
-                    return message.CreateReplyMessage($"You said: {message.Text}");
+                    return message.CreateReplyMessage($"You said: {message.Text} --- This is a Demo developed by Cesar de la Torre, PM at Microsoft Corp. in DevDiv");
             }
             else
             {
