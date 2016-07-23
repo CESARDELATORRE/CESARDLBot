@@ -7,10 +7,14 @@ using System.Threading.Tasks;
 using Microsoft.Bot.Builder.Dialogs;
 using Microsoft.Bot.Builder.Luis;
 using Microsoft.Bot.Builder.Luis.Models;
+using System.Configuration;
+
+//Vehicles namespaces
+using MyWorld.Client.Core.Services;
+using MyWorld.Client.Core.Model;
 
 namespace CESARDLBot
 {
-    //public class PersonalDataProviderDialog
     [LuisModel("86ad7794-ac79-4483-91f1-799fe5a28898", "3c602f7c84194407ad2b09f9cd7aee47")]
     [Serializable]
     public class PersonalDataProviderDialog : LuisDialog<object>
@@ -18,49 +22,81 @@ namespace CESARDLBot
         public const string Entity_Vehicle = "Vehicle";
 
         [LuisIntent("")]
-        public async Task None(IDialogContext context, LuisResult result)
+        public async Task None(IDialogContext context, LuisResult luisResult)
         {
-            string message = $"What's that?";
+            string message = $"Howdy! - As of today, I just know what to answer in regards any of your vehicle's VIN number";
             //string message = $"What's that?: " + string.Join(", ", result.Intents.Select(i => i.Intent));
             await context.PostAsync(message);
             context.Wait(MessageReceived);
         }
 
         [LuisIntent("GetVehicleVIN")]
-        public async Task GetVehicleVIN(IDialogContext context, LuisResult result)
+        public async Task GetVehicleVIN(IDialogContext context, LuisResult luisResult)
         {
-            string vinNumberResponse;
-            if (TryFindVehicleVIN(result, out vinNumberResponse))
+            string tenantId = "CDLTLL";  //TenantId is hardcoded, should be coming from the Bot's secured context/login, identification, etc.
+                                         //use context.UserData or context.ConversationData to find out the tenantId...
+
+            string vehicleToSearch = string.Empty;
+            string vinNumberResponse = string.Empty;
+
+            EntityRecommendation title;
+            if (!luisResult.TryFindEntity(Entity_Vehicle, out title))
             {
-                await context.PostAsync($"{vinNumberResponse}");
+                vehicleToSearch = "Entity not identified by L.U.I.S.";
+                vinNumberResponse = "I could not find any VIN number for: " + vehicleToSearch;
             }
             else
             {
-                await context.PostAsync("did not find any VIN number for that vehicle");
+                vehicleToSearch = title.Entity;
+                vinNumberResponse = await TryFindVehicleVIN(vehicleToSearch, tenantId);
             }
-
+            
+            await context.PostAsync($"{vinNumberResponse}");
+            
             context.Wait(MessageReceived);
         }
 
-        public bool TryFindVehicleVIN(LuisResult result, out string vinNumberResponse)
+        public async Task<string> TryFindVehicleVIN(string vehicleToSearch, string tenantId)
         {            
-            string entityName;
+            string vinNumberResponse = string.Empty;
+            string urlPrefix = ConfigurationManager.AppSettings["AzureVehiclesServiceUrlPrefix"];
 
-            EntityRecommendation title;
-            if (result.TryFindEntity(Entity_Vehicle, out title))
+            string entityNameUppercase = vehicleToSearch.ToUpper();
+            vinNumberResponse = "Before querying and searching for the vehicle..";
+
+            //Get vehicles for current TenantId from the Vehicles service
+            VehiclesAzureSFService vehiclesService = new VehiclesAzureSFService();
+            IList<Vehicle> vehiclesList = await vehiclesService.GetAllVehiclesFromTenant(urlPrefix, tenantId);
+
+            //Search for the Vehicle identified by L.U.I.S
+            if (vehiclesList != null)
             {
-                entityName = title.Entity;
+                List<Vehicle> entitiesFound = (from p in vehiclesList
+                                                where p.FullTitle.ToUpper().Contains(vehicleToSearch.ToUpper())
+                                                select p).ToList<Vehicle>();
+                if (entitiesFound != null && entitiesFound.Any())
+                {
+                    if (entitiesFound.Count > 1)
+                    {
+                        vinNumberResponse = "I found more than one vehicle with the " + vehicleToSearch + "name/make/model for the tenant/owner: " + tenantId;
+                    }
+                    else
+                    {
+                        string foundVIN = entitiesFound[0].VIN;
+                        vinNumberResponse = "The VIN number for your " + entityNameUppercase + " is " + foundVIN;
+                    }
+                }
+                else
+                {
+                    vinNumberResponse = "I could not find any vehicle named like: " + entityNameUppercase + " even when there were vehicles returned from the Vehicles Service under your TenantId: " + tenantId;
+                }
             }
             else
             {
-                entityName = "Entity not found";
+                vinNumberResponse = "I could not find any VIN number for: " + entityNameUppercase + "The list returned from the Vehicles Service was empty";
             }
 
-            entityName = entityName.ToUpper();
-            vinNumberResponse = "The VIN number for your " + entityName + " is " + "999999";
-            return true;
-
-            //return this.alarmByWhat.TryGetValue(what, out alarm);
+            return vinNumberResponse;
         }
     }    
 
